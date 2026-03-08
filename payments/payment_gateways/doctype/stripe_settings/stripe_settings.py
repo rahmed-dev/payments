@@ -249,10 +249,24 @@ class StripeSettings(Document):
 			if self.data.reference_doctype and self.data.reference_docname:
 				custom_redirect_to = None
 				try:
-					custom_redirect_to = frappe.get_doc(
+					reference_doc = frappe.get_doc(
 						self.data.reference_doctype, self.data.reference_docname
-					).run_method("on_payment_authorized", self.flags.status_changed_to)
+					)
+					custom_redirect_to = reference_doc.run_method(
+						"on_payment_authorized", self.flags.status_changed_to
+					)
+
+					# on_payment_authorized was removed from ERPNext v15 Payment Request.
+					# If the reference document did not handle it, fall back to set_as_paid()
+					# directly. Run with ignore_permissions because this executes in a
+					# guest-user context (stripe_checkout allow_guest=True).
+					if custom_redirect_to is None and hasattr(reference_doc, "set_as_paid"):
+						frappe.flags.ignore_permissions = True
+						reference_doc.set_as_paid()
+						frappe.flags.ignore_permissions = False
+
 				except Exception:
+					frappe.flags.ignore_permissions = False
 					frappe.log_error(frappe.get_traceback())
 
 				if custom_redirect_to:
